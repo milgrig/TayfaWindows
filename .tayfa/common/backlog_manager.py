@@ -267,6 +267,20 @@ def remove_item(item_id: str) -> dict:
     return {"error": f"Entry {item_id} not found"}
 
 
+def set_backlog_file(path) -> None:
+    """Override the default backlog.json path (used by the orchestrator)."""
+    global BACKLOG_FILE
+    BACKLOG_FILE = Path(path)
+
+
+# ── Aliases used by kok/app.py ──────────────────────────────────────
+get_backlog = get_items
+get_backlog_item = get_item
+create_backlog_item = add_item
+update_backlog_item = edit_item
+delete_backlog_item = remove_item
+
+
 def _format_list(items: list[dict]) -> str:
     """
     Format a list of entries for human-readable output.
