@@ -3136,7 +3136,7 @@ async function runAllSprintTasks(sprintId) {
     if (sprintAutoRunState[sprintId]?.running) return;
 
     const maxConcurrent = parseInt(document.getElementById('maxConcurrentInput')?.value) || 5;
-    sprintAutoRunState[sprintId] = { running: true, cancelled: false };
+    sprintAutoRunState[sprintId] = { running: true, cancelled: false, finished: false };
     const failedTaskIds = new Set();  // Track tasks that failed during this run
 
     // Expand this sprint so user sees progress
@@ -3260,16 +3260,23 @@ async function runAllSprintTasks(sprintId) {
         console.error('[AutoRun] Error:', e);
     } finally {
         const wasCancelled = sprintAutoRunState[sprintId]?.cancelled;
-        delete sprintAutoRunState[sprintId];
-        await refreshTasksBoardNew();
-        // Summary
-        if (failedTaskIds.size > 0) {
-            const failList = [...failedTaskIds].join(', ');
-            console.warn(`[AutoRun] Sprint ${sprintId} finished with ${failedTaskIds.size} failed task(s): ${failList}`);
-            addSystemMessage(`Sprint ${sprintId} auto-run finished. ${failedTaskIds.size} task(s) failed: ${failList}`);
-        } else {
-            console.log(`[AutoRun] Sprint ${sprintId} finished. ${wasCancelled ? '(cancelled)' : '(complete)'}`);
+        const finished = sprintAutoRunState[sprintId]?.finished;
+
+        // Only show finish message once
+        if (sprintAutoRunState[sprintId] && !finished) {
+            sprintAutoRunState[sprintId].finished = true;
+            await refreshTasksBoardNew();
+
+            if (failedTaskIds.size > 0) {
+                const failList = [...failedTaskIds].join(', ');
+                console.warn(`[AutoRun] Sprint ${sprintId} finished with ${failedTaskIds.size} failed task(s): ${failList}`);
+                addSystemMessage(`Sprint ${sprintId} auto-run finished. ${failedTaskIds.size} task(s) failed: ${failList}`);
+            } else {
+                console.log(`[AutoRun] Sprint ${sprintId} finished. ${wasCancelled ? '(cancelled)' : '(complete)'}`);
+            }
         }
+
+        delete sprintAutoRunState[sprintId];
     }
 }
 
