@@ -3134,9 +3134,10 @@ async function triggerTaskAutoRun(taskId, runtime) {
 
 async function runAllSprintTasks(sprintId) {
     if (sprintAutoRunState[sprintId]?.running) return;
+    delete autoLaunchFinished[sprintId];  // Reset so manual re-launch is always allowed
 
     const maxConcurrent = parseInt(document.getElementById('maxConcurrentInput')?.value) || 5;
-    sprintAutoRunState[sprintId] = { running: true, cancelled: false };
+    sprintAutoRunState[sprintId] = { running: true, cancelled: false, finished: false };
     const failedTaskIds = new Set();  // Track tasks that failed during this run
 
     // Expand this sprint so user sees progress
@@ -3260,16 +3261,23 @@ async function runAllSprintTasks(sprintId) {
         console.error('[AutoRun] Error:', e);
     } finally {
         const wasCancelled = sprintAutoRunState[sprintId]?.cancelled;
-        delete sprintAutoRunState[sprintId];
-        await refreshTasksBoardNew();
-        // Summary
-        if (failedTaskIds.size > 0) {
-            const failList = [...failedTaskIds].join(', ');
-            console.warn(`[AutoRun] Sprint ${sprintId} finished with ${failedTaskIds.size} failed task(s): ${failList}`);
-            addSystemMessage(`Sprint ${sprintId} auto-run finished. ${failedTaskIds.size} task(s) failed: ${failList}`);
-        } else {
-            console.log(`[AutoRun] Sprint ${sprintId} finished. ${wasCancelled ? '(cancelled)' : '(complete)'}`);
+        const finished = sprintAutoRunState[sprintId]?.finished;
+
+        // Only show finish message once
+        if (sprintAutoRunState[sprintId] && !finished) {
+            sprintAutoRunState[sprintId].finished = true;
+            await refreshTasksBoardNew();
+
+            if (failedTaskIds.size > 0) {
+                const failList = [...failedTaskIds].join(', ');
+                console.warn(`[AutoRun] Sprint ${sprintId} finished with ${failedTaskIds.size} failed task(s): ${failList}`);
+                addSystemMessage(`Sprint ${sprintId} auto-run finished. ${failedTaskIds.size} task(s) failed: ${failList}`);
+            } else {
+                console.log(`[AutoRun] Sprint ${sprintId} finished. ${wasCancelled ? '(cancelled)' : '(complete)'}`);
+            }
         }
+
+        delete sprintAutoRunState[sprintId];
     }
 }
 
@@ -3880,6 +3888,7 @@ function startGlobalRunningPoll() {
 
 let autoLaunchTimer = null;
 let autoLaunchRunning = {};  // { sprintId: true } — sprints currently being auto-launched
+let autoLaunchFinished = {};  // { sprintId: true } — sprints that completed auto-run (prevent re-launch loop)
 
 function startAutoLaunchLoop() {
     if (autoLaunchTimer) return;
@@ -3906,6 +3915,7 @@ async function checkAndAutoLaunchReadySprints() {
                 sprint.ready_to_execute &&
                 sprint.status === 'active' &&
                 !autoLaunchRunning[sprint.id] &&
+                !autoLaunchFinished[sprint.id] &&
                 !sprintAutoRunState[sprint.id]?.running
             ) {
                 console.log(`[AutoLaunch] Launching sprint ${sprint.id}: ${sprint.title}`);
@@ -3913,6 +3923,7 @@ async function checkAndAutoLaunchReadySprints() {
                 // Fire and forget — runAllSprintTasks handles its own lifecycle
                 runAllSprintTasks(sprint.id).finally(() => {
                     delete autoLaunchRunning[sprint.id];
+                    autoLaunchFinished[sprint.id] = true;  // Prevent re-launch after completion
                 });
             }
         }
