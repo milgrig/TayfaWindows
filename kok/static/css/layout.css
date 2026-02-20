@@ -143,9 +143,28 @@
         .stream-content { white-space: pre-wrap; word-wrap: break-word; flex-shrink: 0; }
         .stream-event { margin-bottom: 4px; }
         .stream-event.thinking { color: var(--text-dim); font-style: italic; }
-        .stream-event.tool { color: var(--warning); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .stream-event.tool { color: var(--warning); white-space: pre-wrap; word-break: break-word; }
         .stream-event.error { color: var(--danger); }
         .stream-event.result { color: var(--success); border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
+
+        /* Collapsible long tool results */
+        .stream-event.tool-result-long { margin: 2px 0; }
+        .tool-result-header {
+            color: var(--text-dim); cursor: pointer; font-size: 12px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            padding: 2px 4px; border-radius: 4px;
+            transition: background 0.15s ease;
+        }
+        .tool-result-header:hover { background: rgba(255,255,255,0.04); }
+        .tool-result-header::before { content: '▸ '; opacity: 0.5; }
+        .tool-result-header.expanded::before { content: '▾ '; opacity: 0.5; }
+        .tool-result-body {
+            color: var(--text-dim); font-size: 11px; line-height: 1.5;
+            padding: 6px 8px; margin: 2px 0 4px 12px;
+            background: rgba(255,255,255,0.02); border-left: 2px solid var(--border);
+            border-radius: 0 4px 4px 0; max-height: 400px; overflow-y: auto;
+            white-space: pre-wrap; word-break: break-word;
+        }
         .stream-event.question {
             color: var(--accent); background: rgba(79,110,247,0.08);
             border-left: 3px solid var(--accent); padding: 8px 10px; margin: 6px 0;

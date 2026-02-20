@@ -47,15 +47,12 @@ python .tayfa/common/task_manager.py status T001 <status>
 | `questions` | Agent blocked — needs clarification. Write detailed comment in discussion file, then set status to `questions` |
 | `cancelled` | Task cancelled |
 
-### Task Roles
+### Task Fields
 
-Boss assigns roles freely when creating tasks. Any combination is possible.
-
-| Role | Description |
-|------|-------------|
-| **Customer** | Details requirements, formulates acceptance criteria |
-| **Developer** | Implements functionality |
-| **Tester** | Verifies against requirements |
+| Field | Description |
+|-------|-------------|
+| **author** | Who created the task (boss or agent name) |
+| **executor** | Who executes the task (agent name) |
 
 ### Completing a task
 

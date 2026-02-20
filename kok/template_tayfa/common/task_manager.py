@@ -712,8 +712,8 @@ def create_backlog(tasks_list: list[dict]) -> list[dict]:
         task = create_task(
             title=t["title"],
             description=t.get("description", ""),
-            author=t["author"],
-            executor=t["executor"],
+            author=t.get("author", "boss"),
+            executor=t.get("executor", ""),
             sprint_id=t.get("sprint_id", ""),
             depends_on=t.get("depends_on"),
         )
@@ -1059,7 +1059,7 @@ def generate_sprint_report(sprint_id: str) -> dict:
 
     # Tasks table
     lines.append("## Tasks")
-    lines.append("| ID | Title | Developer | Duration | Cost | Tester Returns | Status |")
+    lines.append("| ID | Title | Executor | Duration | Cost | Returns | Status |")
     lines.append("|----|-------|-----------|----------|------|----------------|--------|")
     for m in task_metrics:
         dur_str = _format_duration(m["duration"]) if m["has_history"] else "N/A"

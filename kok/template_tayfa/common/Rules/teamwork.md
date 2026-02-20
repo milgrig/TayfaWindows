@@ -40,28 +40,25 @@ python .tayfa/common/task_manager.py sprints
 
 ### Task Roles
 
-Boss assigns roles freely. Any combination is possible.
+Each task has an **author** (who created it) and an **executor** (who does the work).
 
-| Role | Action |
-|------|--------|
-| **Customer** | Details requirements → `done` or `questions` |
-| **Developer** | Implements → `done` or `questions` |
-| **Tester** | Verifies → `done` or `questions` |
+| Field | Description |
+|-------|-------------|
+| **author** | Who created the task |
+| **executor** | Who executes → `done` or `questions` |
 
 ### Creating Tasks
 
 ```bash
 python .tayfa/common/task_manager.py create "Title" "Description" \
-  --customer analyst --developer developer --tester tester \
+  --author boss --executor developer \
   --sprint S001
 
 # With dependencies
 python .tayfa/common/task_manager.py create "Title" "Description" \
-  --customer analyst --developer dev --tester tester \
+  --author boss --executor dev \
   --sprint S001 --depends-on T001 T002
 ```
-
-**Important:** Boss does NOT assign himself as customer in regular tasks.
 
 ---
 
@@ -94,39 +91,14 @@ Content...
 
 ## Handoff Formats
 
-### Customer → Developer
+### Executor — Task Completed
 
 ```markdown
 ---
 
-## [YYYY-MM-DD HH:MM] {agent} (customer)
+## [YYYY-MM-DD HH:MM] {agent} (executor)
 
-### Task Details
-
-#### What to do
-[2-3 sentences]
-
-#### Acceptance Criteria
-- [ ] Criterion 1: specific, measurable
-- [ ] Criterion 2: specific, measurable
-
-#### Test Cases
-1. [Action] → [Expected result]
-2. [Edge case] → [Expected result]
-
-#### Technical Details (optional)
-- Files to change: ...
-- APIs: ...
-```
-
-### Developer → Tester
-
-```markdown
----
-
-## [YYYY-MM-DD HH:MM] {agent} (developer)
-
-### Implementation Result
+### Result
 
 #### What was done
 - [Change 1]
@@ -138,53 +110,23 @@ Content...
 #### How to verify
 - Run: `python script.py`
 - Tests: `pytest tests/`
-
-#### Checklist for tester
-- [ ] Criterion 1: how to check
-- [ ] Criterion 2: how to check
 ```
 
-### Tester → Done/Return
+### Executor — Questions
 
-**If OK:**
 ```markdown
 ---
 
-## [YYYY-MM-DD HH:MM] {agent} (tester)
+## [YYYY-MM-DD HH:MM] {agent} (executor)
 
-### Test Result: ✅ ACCEPTED
+### Status: QUESTIONS
 
-#### Verified Criteria
-- [✓] Criterion 1: how verified
-- [✓] Criterion 2: how verified
+#### What is needed
+- [Detailed description of what is blocking the task]
+- [What permissions/info/decisions are required]
 
-#### Additional Checks
-- Edge cases: ✓ OK
-- Regression: ✓ OK
-```
-
-**If issues:**
-```markdown
----
-
-## [YYYY-MM-DD HH:MM] {agent} (tester)
-
-### Test Result: ❌ RETURNED
-
-#### Verified Criteria
-- [✓] Criterion 1: OK
-- [✗] Criterion 2: FAILED
-
-#### Bugs Found
-
-##### Bug 1: Title
-**Severity**: Critical / High / Medium / Low
-**Steps**:
-1. Step 1
-2. Step 2
-
-**Expected**: what should happen
-**Actual**: what happens
+#### What was attempted
+- [What was tried before getting blocked]
 ```
 
 ---

@@ -192,6 +192,8 @@ function appendStreamEvent(type, text) {
     // Auto-scroll
     const streamTab = document.getElementById('agentStreamTab');
     streamTab.scrollTop = streamTab.scrollHeight;
+
+    return div;
 }
 
 function clearStream() {
@@ -205,7 +207,7 @@ function clearStream() {
 
 // Current text accumulator for streaming deltas
 let _streamTextNode = null;
-let _pendingTool = null;  // Tracks tool_use being streamed: { name, inputJson }
+let _pendingTool = null;  // Tracks tool_use being streamed: { name, inputJson, el }
 
 async function sendPromptStreaming() {
     if (!currentAgent) return;
@@ -364,10 +366,11 @@ function processStreamEvent(event) {
         } else if (block.type === 'tool_use') {
             const bName = block.name || 'tool';
             // Track this tool — input will accumulate via input_json_delta
-            _pendingTool = { name: bName, inputJson: '' };
+            _pendingTool = { name: bName, inputJson: '', el: null };
             // Show tool label immediately (except AskUserQuestion — wait for full input)
             if (bName !== 'AskUserQuestion') {
-                appendStreamEvent('tool', _formatToolUse(bName, block.input));
+                const el = appendStreamEvent('tool', _formatToolUse(bName, block.input));
+                _pendingTool.el = el;
             }
         }
         // text blocks — wait for deltas
@@ -390,12 +393,19 @@ function processStreamEvent(event) {
     } else if (type === 'content_block_stop') {
         _streamTextNode = null;
         // If we accumulated a tool with deferred rendering — render now
-        if (_pendingTool && _pendingTool.name === 'AskUserQuestion' && _pendingTool.inputJson) {
+        if (_pendingTool && _pendingTool.inputJson) {
             try {
                 const fullInput = JSON.parse(_pendingTool.inputJson);
-                _renderAskUserQuestionButtons(fullInput);
+                if (_pendingTool.name === 'AskUserQuestion') {
+                    _renderAskUserQuestionButtons(fullInput);
+                } else if (_pendingTool.el) {
+                    // Update tool line with full input details
+                    _pendingTool.el.textContent = _formatToolUse(_pendingTool.name, fullInput);
+                }
             } catch (e) {
-                appendStreamEvent('question', '❓ Agent is asking a question');
+                if (_pendingTool.name === 'AskUserQuestion') {
+                    appendStreamEvent('question', '❓ Agent is asking a question');
+                }
             }
         }
         _pendingTool = null;
@@ -421,8 +431,13 @@ function processStreamEvent(event) {
         } else if (typeof content !== 'string') {
             content = '';  // Skip non-text content (don't show raw JSON)
         }
-        if (content && content.length < 200) {
-            appendStreamEvent('text', `  => ${content}`);
+        if (content) {
+            if (content.length < 300) {
+                appendStreamEvent('text', `  => ${content}`);
+            } else {
+                // Long result — collapsible block
+                _appendCollapsibleResult(content);
+            }
         }
 
     } else if (type === 'result') {
@@ -521,33 +536,110 @@ function _appendTextDelta(text) {
     streamTab.scrollTop = streamTab.scrollHeight;
 }
 
+function _appendCollapsibleResult(content) {
+    const container = document.getElementById('streamContent');
+    const empty = document.getElementById('streamEmpty');
+    if (empty) empty.style.display = 'none';
+
+    const div = document.createElement('div');
+    div.className = 'stream-event tool-result-long';
+
+    const preview = content.substring(0, 150).trim();
+    const lines = content.split('\n').length;
+    const chars = content.length;
+
+    const header = document.createElement('div');
+    header.className = 'tool-result-header';
+    header.textContent = `  => ${preview}…  [${lines} lines, ${chars} chars]`;
+    header.title = 'Click to expand';
+    div.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'tool-result-body';
+    body.textContent = content;
+    body.style.display = 'none';
+    div.appendChild(body);
+
+    let expanded = false;
+    header.addEventListener('click', () => {
+        expanded = !expanded;
+        body.style.display = expanded ? 'block' : 'none';
+        header.classList.toggle('expanded', expanded);
+    });
+
+    container.appendChild(div);
+    const streamTab = document.getElementById('agentStreamTab');
+    streamTab.scrollTop = streamTab.scrollHeight;
+}
+
 function _formatToolUse(toolName, input) {
     if (!input || typeof input !== 'object') return toolName;
 
-    // Extract the most useful parameter for each known tool
+    // Extract the most useful parameters for each known tool
     switch (toolName) {
-        case 'Read':
-            return `Read → ${_shortPath(input.file_path)}`;
+        case 'Read': {
+            const path = _shortPath(input.file_path);
+            const details = [];
+            if (input.offset) details.push(`line ${input.offset}`);
+            if (input.limit) details.push(`${input.limit} lines`);
+            return `Read → ${path}${details.length ? '  (' + details.join(', ') + ')' : ''}`;
+        }
         case 'Write':
             return `Write → ${_shortPath(input.file_path)}`;
-        case 'Edit':
-            return `Edit → ${_shortPath(input.file_path)}`;
+        case 'Edit': {
+            const path = _shortPath(input.file_path);
+            const parts = [`Edit → ${path}`];
+            if (input.old_string) {
+                const old = _truncStr(input.old_string.trim().split('\n')[0], 60);
+                const nw = input.new_string ? _truncStr(input.new_string.trim().split('\n')[0], 60) : '(delete)';
+                parts.push(`  "${old}" → "${nw}"`);
+            }
+            if (input.replace_all) parts.push('  (all occurrences)');
+            return parts.join('\n');
+        }
         case 'Glob':
             return `Glob → ${input.pattern || ''}${input.path ? '  in ' + _shortPath(input.path) : ''}`;
-        case 'Grep':
-            return `Grep → "${_truncStr(input.pattern || '', 40)}"${input.path ? '  in ' + _shortPath(input.path) : ''}`;
-        case 'Bash': {
-            const cmd = input.description || input.command || '';
-            return `Bash → ${_truncStr(cmd, 100)}`;
+        case 'Grep': {
+            const parts = [`Grep → "${_truncStr(input.pattern || '', 50)}"`];
+            if (input.path) parts[0] += `  in ${_shortPath(input.path)}`;
+            const flags = [];
+            if (input.glob) flags.push(input.glob);
+            if (input.type) flags.push(`type:${input.type}`);
+            if (input.output_mode && input.output_mode !== 'files_with_matches') flags.push(input.output_mode);
+            if (flags.length) parts.push(`  [${flags.join(', ')}]`);
+            return parts.join('\n');
         }
-        case 'Task':
-            return `Task → ${_truncStr(input.description || '', 60)}`;
+        case 'Bash': {
+            const desc = input.description || '';
+            const cmd = input.command || '';
+            const parts = [`Bash → ${_truncStr(desc || cmd, 120)}`];
+            // Show command if description is different and exists
+            if (desc && cmd && desc !== cmd) {
+                parts.push(`  $ ${_truncStr(cmd, 120)}`);
+            }
+            if (input.timeout) parts.push(`  timeout: ${Math.round(input.timeout/1000)}s`);
+            return parts.join('\n');
+        }
+        case 'Task': {
+            const parts = [`Task → ${_truncStr(input.description || '', 80)}`];
+            if (input.subagent_type) parts.push(`  agent: ${input.subagent_type}`);
+            if (input.model) parts.push(`  model: ${input.model}`);
+            if (input.prompt) parts.push(`  ${_truncStr(input.prompt, 150)}`);
+            return parts.join('\n');
+        }
         case 'WebFetch':
-            return `WebFetch → ${_truncStr(input.url || '', 80)}`;
+            return `WebFetch → ${_truncStr(input.url || '', 100)}`;
         case 'WebSearch':
-            return `WebSearch → "${_truncStr(input.query || '', 60)}"`;
-        case 'TodoWrite':
-            return `TodoWrite (${(input.todos || []).length} items)`;
+            return `WebSearch → "${_truncStr(input.query || '', 80)}"`;
+        case 'TodoWrite': {
+            const todos = input.todos || [];
+            const parts = [`TodoWrite (${todos.length} items)`];
+            for (const t of todos) {
+                const icon = t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '►' : '○';
+                parts.push(`  ${icon} ${_truncStr(t.content || t.activeForm || '', 80)}`);
+            }
+            return parts.join('\n');
+        }
         case 'NotebookEdit':
             return `NotebookEdit → ${_shortPath(input.notebook_path)}`;
         case 'AskUserQuestion': {
