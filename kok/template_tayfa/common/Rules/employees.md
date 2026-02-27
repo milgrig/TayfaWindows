@@ -36,7 +36,7 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 **Capabilities**: detail requirements, write user stories, acceptance criteria, decompose tasks.
 
-**Task role**: Customer (details requirements for developer).
+**Task role**: Executor (details requirements, analyzes).
 
 ---
 
@@ -46,7 +46,7 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 **Capabilities**: implement features, fix bugs, refactor, write tests.
 
-**Task role**: Developer (implements per spec).
+**Task role**: Executor (implements per spec).
 
 ---
 
@@ -56,7 +56,7 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 **Capabilities**: test functionality, verify acceptance criteria, document bugs.
 
-**Task role**: Tester (verifies and accepts/returns).
+**Task role**: Executor (verifies and accepts/returns).
 
 ---
 
@@ -86,7 +86,7 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 ## Task System
 
-Each task has 3 roles: customer, developer, tester.
+Each task has 2 fields: author (who created) and executor (who does the work).
 
 ```bash
 python .tayfa/common/task_manager.py list

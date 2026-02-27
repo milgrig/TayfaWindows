@@ -14,11 +14,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from file_lock import locked_read_json, locked_write_json
+
 SETTINGS_FILE = Path(__file__).parent / "settings.json"
 SECRET_SETTINGS_FILE = Path(__file__).parent / "secret_settings.json"
 
 # List of secret fields (these fields are stored in secret_settings.json)
-SECRET_FIELDS = {"githubToken", "apiKeys", "secrets"}
+SECRET_FIELDS = {"githubToken", "apiKeys", "secrets", "telegramBotToken", "telegramChatId"}
 
 DEFAULT_SETTINGS = {
     "theme": "dark",
@@ -49,6 +51,8 @@ DEFAULT_SETTINGS = {
 DEFAULT_SECRET_SETTINGS = {
     "githubToken": "",
     "apiKeys": {},
+    "telegramBotToken": "",
+    "telegramChatId": "",
 }
 
 VALIDATORS = {
@@ -63,22 +67,15 @@ VALIDATORS = {
 
 
 def _load_json(path: Path, defaults: dict) -> dict:
-    """Loads a JSON file. If the file does not exist, returns default values."""
-    if not path.exists():
-        return dict(defaults)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return {**defaults, **data}
-    except Exception:
-        return dict(defaults)
+    """Loads a JSON file with cross-process file locking.
+    If the file does not exist, returns default values."""
+    data = locked_read_json(str(path), default=dict(defaults))
+    return {**defaults, **data} if isinstance(data, dict) else dict(defaults)
 
 
 def _save_json(path: Path, data: dict) -> None:
-    """Saves data to a JSON file."""
-    path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    """Saves data to a JSON file with cross-process file locking."""
+    locked_write_json(str(path), data)
 
 
 def _migrate_secrets_from_settings() -> None:
@@ -301,6 +298,23 @@ def save_version(version_str: str) -> dict:
     }
     save_settings(settings)
     return settings["version"]
+
+
+def get_telegram_settings() -> tuple[str, str]:
+    """
+    Gets Telegram bot settings.
+    Returns (bot_token: str, chat_id: str).
+    """
+    secrets = load_secret_settings()
+    return secrets.get("telegramBotToken", ""), secrets.get("telegramChatId", "")
+
+
+def set_telegram_settings(bot_token: str, chat_id: str) -> None:
+    """Saves Telegram bot settings to secret settings."""
+    secrets = load_secret_settings()
+    secrets["telegramBotToken"] = bot_token
+    secrets["telegramChatId"] = chat_id
+    _save_json(SECRET_SETTINGS_FILE, secrets)
 
 
 def get_auto_shutdown_settings() -> tuple[bool, int]:

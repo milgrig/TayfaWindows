@@ -1,40 +1,34 @@
 """
 Splash Animation Module for Tayfa
 ==================================
-Displays an animated splash screen on application startup.
+Displays an animated 3D splash screen on application startup.
 
 Animation:
-    - The letter T grows from 0 to screen size over 3 seconds
-    - Starts from the mouse cursor position (or screen center)
-    - Transparent background, semi-transparent letter
-    - Smooth fade-out at the end
+    - Beautiful rotating 3D letter T
+    - Smooth rotation around Y-axis
+    - Transparent background (no background elements)
+    - Elegant fade-in and fade-out
+    - Glowing effect with gradient colors
 
 API:
     show_splash() -> bool  # Blocking call, returns True if shown
     start_splash_async() -> None  # Starts animation in a separate thread
 
 Features:
-    - Uses tkinter (built into Python)
+    - Uses Pygame for 3D rendering
     - Compatible with PyInstaller
     - Graceful degradation on errors
+    - Pure 3D geometry (no images needed)
 """
 
 import os
 import sys
 import logging
 import threading
+import math
 
 # Logging setup
 logger = logging.getLogger(__name__)
-
-
-def _get_resource_path(relative_path: str) -> str:
-    """
-    Get the absolute path to a resource.
-    Works both in normal mode and in frozen mode (PyInstaller).
-    """
-    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_path, relative_path)
 
 
 def _can_show_splash() -> bool:
@@ -46,37 +40,82 @@ def _can_show_splash() -> bool:
             return False
 
     try:
-        import tkinter as tk
-        test_root = tk.Tk()
-        test_root.withdraw()
-        test_root.destroy()
+        import pygame
+        pygame.init()
+        pygame.quit()
         return True
     except Exception as e:
-        logger.debug(f"tkinter is not available: {e}")
+        logger.debug(f"Pygame is not available: {e}")
         return False
 
 
-def _get_mouse_position():
-    """Get the current mouse cursor position."""
-    try:
-        import ctypes
+def _create_3d_letter_t(size: float = 100) -> list:
+    """
+    Create 3D vertices for the letter T.
+    Returns list of (x, y, z) vertices.
+    """
+    vertices = []
+    thickness = size * 0.2
+    top_height = size * 0.8
+    bottom_bar_width = size * 1.2
 
-        class POINT(ctypes.Structure):
-            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+    # Top horizontal bar (T cross)
+    # Front face
+    vertices.append((-bottom_bar_width/2, top_height, -thickness/2))
+    vertices.append((bottom_bar_width/2, top_height, -thickness/2))
+    vertices.append((bottom_bar_width/2, top_height - thickness, -thickness/2))
+    vertices.append((-bottom_bar_width/2, top_height - thickness, -thickness/2))
 
-        pt = POINT()
-        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-        return pt.x, pt.y
-    except Exception:
-        return None, None
+    # Back face
+    vertices.append((-bottom_bar_width/2, top_height, thickness/2))
+    vertices.append((bottom_bar_width/2, top_height, thickness/2))
+    vertices.append((bottom_bar_width/2, top_height - thickness, thickness/2))
+    vertices.append((-bottom_bar_width/2, top_height - thickness, thickness/2))
+
+    # Vertical bar (T stem)
+    # Front face
+    center_offset = (bottom_bar_width/2 - thickness) / 2
+    vertices.append((-thickness/2, top_height - thickness, -thickness/2))
+    vertices.append((thickness/2, top_height - thickness, -thickness/2))
+    vertices.append((thickness/2, -top_height, -thickness/2))
+    vertices.append((-thickness/2, -top_height, -thickness/2))
+
+    # Back face
+    vertices.append((-thickness/2, top_height - thickness, thickness/2))
+    vertices.append((thickness/2, top_height - thickness, thickness/2))
+    vertices.append((thickness/2, -top_height, thickness/2))
+    vertices.append((-thickness/2, -top_height, thickness/2))
+
+    return vertices
+
+
+def _rotate_vertex(vertex: tuple, angle_y: float) -> tuple:
+    """Rotate a vertex around Y-axis by angle_y (in radians)."""
+    x, y, z = vertex
+    cos_a = math.cos(angle_y)
+    sin_a = math.sin(angle_y)
+
+    new_x = x * cos_a - z * sin_a
+    new_z = x * sin_a + z * cos_a
+
+    return (new_x, y, new_z)
+
+
+def _project_3d_to_2d(vertex: tuple, screen_width: int, screen_height: int, distance: float = 500) -> tuple:
+    """Project 3D vertex to 2D screen coordinates."""
+    x, y, z = vertex
+
+    # Perspective projection
+    scale = distance / (distance + z)
+    screen_x = int(screen_width / 2 + x * scale)
+    screen_y = int(screen_height / 2 - y * scale)
+
+    return (screen_x, screen_y, z)
 
 
 def show_splash() -> bool:
     """
-    Show the splash animation (blocking call).
-
-    The letter T grows from the cursor position to screen size over 3 seconds.
-    Transparent background, semi-transparent letter, fade-out at the end.
+    Show the splash animation with rotating 3D letter T.
 
     Returns:
         bool: True if splash was shown, False if skipped
@@ -85,8 +124,8 @@ def show_splash() -> bool:
         return False
 
     try:
-        import tkinter as tk
-        from PIL import Image, ImageTk
+        import pygame
+        import numpy as np
     except ImportError as e:
         logger.warning(f"Failed to import required modules: {e}")
         return False
@@ -94,135 +133,160 @@ def show_splash() -> bool:
     # Animation parameters
     TOTAL_DURATION_MS = 3000    # 3 seconds
     FADE_OUT_START = 2500       # Last 500ms — fade-out
-    FRAME_INTERVAL = 16         # ~60 FPS
-    BASE_OPACITY = 0.6          # Base opacity of the letter T
-
-    # Path to image (letter T only, no background)
-    icon_path = _get_resource_path(os.path.join("static", "tayfa-icon.png"))
-
-    if not os.path.exists(icon_path):
-        logger.warning(f"Image not found: {icon_path}")
-        return False
+    FPS = 60
+    FRAME_INTERVAL = 1000 // FPS
 
     try:
-        # Create window
-        root = tk.Tk()
-        root.withdraw()
+        pygame.init()
 
         # Get screen dimensions
-        screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
+        screen_info = pygame.display.Info()
+        screen_width = screen_info.current_w
+        screen_height = screen_info.current_h
 
-        # Starting position — mouse cursor or screen center
-        mouse_x, mouse_y = _get_mouse_position()
-        if mouse_x is None or mouse_y is None:
-            start_x = screen_width // 2
-            start_y = screen_height // 2
-        else:
-            start_x = mouse_x
-            start_y = mouse_y
+        # Create fullscreen window with transparent background
+        flags = pygame.FULLSCREEN | pygame.NOFRAME
+        screen = pygame.display.set_mode((screen_width, screen_height), flags)
+        pygame.display.set_caption("Tayfa Loading...")
 
-        # Window settings — fullscreen, transparent
-        root.overrideredirect(True)
-        root.attributes('-topmost', True)
-        root.geometry(f"{screen_width}x{screen_height}+0+0")
+        # Fill with black (will use colorkey for transparency on some systems)
+        screen.fill((0, 0, 0))
+        screen.set_colorkey((0, 0, 0))
 
-        # Transparent background (Windows)
-        # Use a special color for transparency
-        TRANSPARENT_COLOR = "#010101"  # Near-black, will be transparent
-        root.configure(bg=TRANSPARENT_COLOR)
+        clock = pygame.time.Clock()
 
-        try:
-            root.attributes('-transparentcolor', TRANSPARENT_COLOR)
-            root.attributes('-alpha', BASE_OPACITY)
-        except tk.TclError:
-            pass
+        # Create 3D letter T
+        letter_t = _create_3d_letter_t(size=150)
 
-        # Full-screen canvas
-        canvas = tk.Canvas(
-            root,
-            width=screen_width,
-            height=screen_height,
-            bg=TRANSPARENT_COLOR,
-            highlightthickness=0
-        )
-        canvas.pack()
+        # Create a surface for rendering (we'll render to a smaller surface then scale)
+        render_surface = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
 
-        # Load the image
-        original_img = Image.open(icon_path).convert("RGBA")
+        start_time = None
 
-        # Store current image and its canvas ID
-        current_photo = [None]
-        image_id = [None]
-        start_time = [None]
+        # Main animation loop
+        running = True
+        while running:
+            # Handle events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
 
-        def animate():
-            """Animation function, called every frame."""
-            import time
+            # Get elapsed time
+            if start_time is None:
+                start_time = pygame.time.get_ticks()
 
-            if start_time[0] is None:
-                start_time[0] = time.time() * 1000
-
-            elapsed = time.time() * 1000 - start_time[0]
+            elapsed = pygame.time.get_ticks() - start_time
 
             if elapsed >= TOTAL_DURATION_MS:
-                root.destroy()
-                return
+                running = False
+                break
 
-            try:
-                # Animation progress (0.0 -> 1.0)
-                progress = elapsed / TOTAL_DURATION_MS
+            # Calculate progress (0.0 -> 1.0)
+            progress = elapsed / TOTAL_DURATION_MS
 
-                # Image size: from 1px to max(screen_width, screen_height)
-                max_size = max(screen_width, screen_height)
-                current_size = max(1, int(max_size * progress))
+            # Calculate rotation angle (continuous rotation)
+            rotation_angle = progress * math.pi * 4  # 2 full rotations
 
-                # Position: interpolate from start_x,start_y to screen center
-                current_x = int(start_x + (screen_width // 2 - start_x) * progress)
-                current_y = int(start_y + (screen_height // 2 - start_y) * progress)
+            # Calculate opacity (fade in, then fade out)
+            if progress < 0.2:
+                # Fade in first 20%
+                alpha = int(255 * (progress / 0.2))
+            elif progress > 0.8:
+                # Fade out last 20%
+                fade_progress = (progress - 0.8) / 0.2
+                alpha = int(255 * (1.0 - fade_progress))
+            else:
+                alpha = 255
 
-                # Scale the image
-                resized = original_img.resize(
-                    (current_size, current_size),
-                    Image.Resampling.LANCZOS
-                )
-                current_photo[0] = ImageTk.PhotoImage(resized)
+            # Clear the render surface
+            render_surface.fill((0, 0, 0, 0))
 
-                # Update or create the image on the canvas
-                if image_id[0] is None:
-                    image_id[0] = canvas.create_image(
-                        current_x, current_y,
-                        image=current_photo[0],
-                        anchor=tk.CENTER
-                    )
-                else:
-                    canvas.coords(image_id[0], current_x, current_y)
-                    canvas.itemconfig(image_id[0], image=current_photo[0])
+            # Project and draw 3D letter
+            projected_vertices = []
+            for vertex in letter_t:
+                rotated = _rotate_vertex(vertex, rotation_angle)
+                projected = _project_3d_to_2d(rotated, screen_width, screen_height)
+                projected_vertices.append(projected)
 
-                # Fade-out at the end
-                if elapsed >= FADE_OUT_START:
-                    fade_progress = (elapsed - FADE_OUT_START) / (TOTAL_DURATION_MS - FADE_OUT_START)
-                    alpha = BASE_OPACITY * (1.0 - fade_progress)
-                    alpha = max(0.0, min(BASE_OPACITY, alpha))
-                    root.attributes('-alpha', alpha)
+            # Draw faces of the letter T
+            # We'll draw simple quads for each face
+            faces = [
+                # Top bar front
+                [0, 1, 2, 3],
+                # Top bar back
+                [4, 5, 6, 7],
+                # Top bar sides
+                [0, 1, 5, 4],
+                [1, 2, 6, 5],
+                [2, 3, 7, 6],
+                [3, 0, 4, 7],
+                # Stem front
+                [8, 9, 10, 11],
+                # Stem back
+                [12, 13, 14, 15],
+                # Stem sides
+                [8, 9, 13, 12],
+                [9, 10, 14, 13],
+                [10, 11, 15, 14],
+                [11, 8, 12, 15],
+            ]
 
-            except tk.TclError:
-                return  # Window closed
+            # Draw with gradient coloring based on z-depth
+            for face in faces:
+                points = []
+                z_values = []
 
-            root.after(FRAME_INTERVAL, animate)
+                for idx in face:
+                    if idx < len(projected_vertices):
+                        sx, sy, sz = projected_vertices[idx]
+                        points.append((sx, sy))
+                        z_values.append(sz)
 
-        # Show the window and start the animation
-        root.deiconify()
-        root.update()
-        root.after(0, animate)
-        root.mainloop()
+                if len(points) == 4:
+                    # Calculate average z for depth sorting
+                    avg_z = sum(z_values) / len(z_values)
 
+                    # Color based on depth and progress
+                    # Gradient from cyan to magenta
+                    color_progress = (avg_z + 150) / 300  # Normalize z
+                    color_progress = max(0, min(1, color_progress))
+
+                    # Gradient: cyan -> blue -> magenta
+                    if color_progress < 0.5:
+                        r = int(0 + (100 - 0) * (color_progress * 2))
+                        g = int(255 - (255 - 100) * (color_progress * 2))
+                        b = int(255)
+                    else:
+                        r = int(100 + (255 - 100) * ((color_progress - 0.5) * 2))
+                        g = int(100 - 100 * ((color_progress - 0.5) * 2))
+                        b = int(255 - (255 - 150) * ((color_progress - 0.5) * 2))
+
+                    color = (r, g, b, alpha)
+
+                    # Draw polygon
+                    try:
+                        pygame.draw.polygon(render_surface, color, points)
+                        # Add edge for better definition
+                        pygame.draw.polygon(render_surface, (255, 255, 255, int(alpha * 0.3)), points, 2)
+                    except (ValueError, IndexError):
+                        pass  # Skip if polygon is invalid
+
+            # Blit the render surface to the screen
+            screen.blit(render_surface, (0, 0))
+
+            pygame.display.flip()
+            clock.tick(FPS)
+
+        pygame.quit()
         return True
 
     except Exception as e:
         logger.warning(f"Error showing splash: {e}")
         try:
-            root.destroy()
+            pygame.quit()
         except:
             pass
         return False
